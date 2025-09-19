@@ -9,12 +9,13 @@ Endpoints:
 from contextlib import asynccontextmanager
 import os
 from fastapi import FastAPI, HTTPException
-from chain.build_chain import _build_chain
+from chain.build_chain import build_chain
 from schema import IngestRequest, QueryRequest, QueryResponse
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema import Document
 from langchain.embeddings import OpenAIEmbeddings
-from langchain.chat_models import ChatOpenAI
+from langchain.chat_models.openai import ChatOpenAI
+from langchain_groq import ChatGroq
 from langchain.vectorstores import Chroma
 from utils import CHROMA_DB_DIR, OPENAI_API_KEY, VECTOR_BACKEND
 
@@ -22,9 +23,10 @@ from utils import CHROMA_DB_DIR, OPENAI_API_KEY, VECTOR_BACKEND
 # Setup LangChain components (embeddings, llm, vectorstore)
 embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
 
-llm = ChatOpenAI(openai_api_key=OPENAI_API_KEY, model="gpt-4o", temperature=0)
+# llm = ChatOpenAI(openai_api_key=OPENAI_API_KEY, model="gpt-5-nano")
+llm = ChatGroq(model='openai/gpt-oss-120b', temperature=0.5)
 
-text_splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=150)
+text_splitter = RecursiveCharacterTextSplitter(chunk_size=100, chunk_overlap=20)
 
 if VECTOR_BACKEND == "chroma":
     vector_store = Chroma(persist_directory=CHROMA_DB_DIR, embedding_function=embeddings)
@@ -64,7 +66,7 @@ def ingest(req: IngestRequest):
     return {"ingested_chunks": len(docs_to_add)}
 
 
-@app.post("/query", response_model=QueryResponse)
+@app.post("/query", response_model=QueryResponse, status_code=200)
 def query(req: QueryRequest):
     """
     Query the corpus:
@@ -75,7 +77,7 @@ def query(req: QueryRequest):
     if not req.query.strip():
         raise HTTPException(status_code=400, detail="Empty query")
 
-    chain = _build_chain(llm, top_k=req.top_k, vector_store=vector_store)
+    chain = build_chain(llm, top_k=req.top_k, vector_store=vector_store)
 
     # We use the generic API that returns {'result'|'answer' ... , 'source_documents': [...] }
     result = chain.invoke({"input": req.query})
